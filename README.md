@@ -1,7 +1,23 @@
 # Game Enhancement Tool
 
 This project has enhanced item data management, overlay improvements, and various player enhancement features.
+
+See [`CODEBASE_INDEX.md`](CODEBASE_INDEX.md) for the architecture, runtime flow, and file-by-file ownership map.
+
 ## How to build and compile
+
+### Build the current checkout (recommended)
+
+Install Visual Studio 2022 with **Desktop development with C++**, MSVC v143, and a Windows 10/11 SDK. Then run:
+
+```powershell
+.\build-local.ps1 -Clean
+```
+
+The Release x64 executable is written to `x64\Release\protocol.exe`.
+
+### Download and build a fresh copy
+
 1. Type Windows+R
 2. Type powershell and press enter
 3. Paste this into the shell window:

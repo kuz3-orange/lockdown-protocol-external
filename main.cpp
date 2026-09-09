@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include "data_cache.h"
 #include <algorithm>
+#include <execution>
 #include <limits>
 #include "game_math.hpp"
 #include "game_function.hpp"
@@ -32,6 +33,109 @@ using namespace globals;
 using namespace protocol::engine::sdk;
 using namespace protocol::game::sdk;
 using namespace protocol::engine;
+
+namespace {
+	enum class cached_actor_kind {
+		none,
+		world_item,
+		task_vents,
+		task_machines,
+		task_alimentations,
+		task_deliveries,
+		task_pizzushis,
+		task_data,
+		task_scanner,
+		alarm_button,
+		rez_charger,
+		player,
+		weapon_case
+	};
+
+	struct classified_actor {
+		cached_actor_kind kind = cached_actor_kind::none;
+		a_actor* actor = nullptr;
+	};
+
+	classified_actor classify_actor(a_actor* actor) {
+		if (!actor)
+			return {};
+
+		auto actor_class = actor->class_private();
+		if (!actor_class)
+			return {};
+
+		const auto class_name = util::get_name_from_fname(actor_class->fname_index());
+		if (class_name.find("WorldItem_C") != std::string::npos)
+			return { cached_actor_kind::world_item, actor };
+		if (class_name.find("Task_Vents_C") != std::string::npos)
+			return { cached_actor_kind::task_vents, actor };
+		if (class_name.find("Task_Machine_C") != std::string::npos)
+			return { cached_actor_kind::task_machines, actor };
+		if (class_name.find("Task_Alim_C") != std::string::npos)
+			return { cached_actor_kind::task_alimentations, actor };
+		if (class_name.find("Task_DelivryIn_C") != std::string::npos)
+			return { cached_actor_kind::task_deliveries, actor };
+		if (class_name.find("Task_Pizzushi_C") != std::string::npos)
+			return { cached_actor_kind::task_pizzushis, actor };
+		if (class_name.find("Task_Data_C") != std::string::npos)
+			return { cached_actor_kind::task_data, actor };
+		if (class_name.find("Task_Scanner_C") != std::string::npos)
+			return { cached_actor_kind::task_scanner, actor };
+		if (class_name.find("AlarmButton_C") != std::string::npos)
+			return { cached_actor_kind::alarm_button, actor };
+		if (class_name.find("RezCharger_C") != std::string::npos)
+			return { cached_actor_kind::rez_charger, actor };
+		if (class_name.find("Mec_C") != std::string::npos)
+			return { cached_actor_kind::player, actor };
+		if (class_name.find("WeaponCaseCode_C") != std::string::npos)
+			return { cached_actor_kind::weapon_case, actor };
+
+		return {};
+	}
+
+	void append_classified_actor(object_cache& cache, const classified_actor& entry) {
+		switch (entry.kind) {
+		case cached_actor_kind::world_item:
+			cache.world_items.push_back(static_cast<world_item*>(entry.actor));
+			break;
+		case cached_actor_kind::task_vents:
+			cache.task_vents.push_back(static_cast<task_vents*>(entry.actor));
+			break;
+		case cached_actor_kind::task_machines:
+			cache.task_machines.push_back(static_cast<task_machines*>(entry.actor));
+			break;
+		case cached_actor_kind::task_alimentations:
+			cache.task_alimentations.push_back(static_cast<task_alimentations*>(entry.actor));
+			break;
+		case cached_actor_kind::task_deliveries:
+			cache.task_deliveries.push_back(static_cast<task_deliveries*>(entry.actor));
+			break;
+		case cached_actor_kind::task_pizzushis:
+			cache.task_pizzushis.push_back(static_cast<task_pizzushis*>(entry.actor));
+			break;
+		case cached_actor_kind::task_data:
+			cache.task_data.push_back(static_cast<task_data*>(entry.actor));
+			break;
+		case cached_actor_kind::task_scanner:
+			cache.task_scanners.push_back(static_cast<task_scanner*>(entry.actor));
+			break;
+		case cached_actor_kind::alarm_button:
+			cache.alarm_buttons.push_back(static_cast<a_alarm_button_c*>(entry.actor));
+			break;
+		case cached_actor_kind::rez_charger:
+			cache.rez_chargers.push_back(static_cast<a_rez_charger_c*>(entry.actor));
+			break;
+		case cached_actor_kind::player:
+			cache.players.push_back(static_cast<mec_pawn*>(entry.actor));
+			break;
+		case cached_actor_kind::weapon_case:
+			cache.weapon_cases.push_back(static_cast<a_weapon_case_code_c*>(entry.actor));
+			break;
+		default:
+			break;
+		}
+	}
+}
 
 std::unordered_map<std::string, ItemProperties> itemData;
 
@@ -220,7 +324,7 @@ static void cache_useful() {
 	bool items_populated = false;  // Flag to track if items have been populated once
 
 	while (true) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(250));
 		gworld = u_world::get_world(mem::module_base);
 		if (!gworld) continue;
 		game_state = gworld->get_game_state();
@@ -237,18 +341,7 @@ static void cache_useful() {
 		local_mec = (mec_pawn*)local_controller->get_pawn();
 		if (!local_mec) continue;
 
-		std::vector < mec_pawn* > temp_player_cache{};
-		std::vector < world_item* > temp_world_item_cache{};
-		std::vector < task_vents* > temp_task_vents_cache{};
-		std::vector < task_machines* > temp_task_machines_cache{};
-		std::vector < task_alimentations* > temp_task_alims_cache{};
-		std::vector < task_deliveries* > temp_task_delivery_cache{};
-		std::vector < task_pizzushis* > temp_task_pizzushi_cache{};
-		std::vector < task_data* > temp_task_data_cache{};
-		std::vector < task_scanner* > temp_task_scanner_cache{};
-		std::vector < a_alarm_button_c* > temp_alarm_button_cache{};
-		std::vector < a_rez_charger_c* > temp_rez_charger_cache{};
-		std::vector < a_weapon_case_code_c* > temp_weapon_case_cache{};
+		object_cache next_cache{};
 
 		int current_target_index = 0;
 		float expanding_radius = 0.0f;
@@ -258,72 +351,29 @@ static void cache_useful() {
 		local_mec->set_net_emote_primary(false);
 
 		auto levels = gworld->get_levels();
-		for (auto level : levels.list()) {
-			auto actors = level->get_actors();
-
-			for (auto actor : actors.list()) {
-				auto class_name = util::get_name_from_fname(actor->class_private()->fname_index());
-				auto name = util::get_name_from_fname(actor->outer()->fname_index());
-
-				if (class_name.find("WorldItem_C") != std::string::npos) {
-					auto item = static_cast<world_item*>(actor);
-					auto item_data = item->get_data();
-					auto item_name = item_data->get_name().read_string();
-
-
-					temp_world_item_cache.push_back((world_item*)actor);
-				}
-				if (class_name.find("Task_Vents_C") != std::string::npos) {
-					temp_task_vents_cache.push_back((task_vents*)actor);
-				}
-				if (class_name.find("Task_Machine_C") != std::string::npos) {
-					temp_task_machines_cache.push_back((task_machines*)actor);
-				}
-				if (class_name.find("Task_Alim_C") != std::string::npos) {
-					temp_task_alims_cache.push_back((task_alimentations*)actor);
-				}
-				if (class_name.find("Task_DelivryIn_C") != std::string::npos) {
-					temp_task_delivery_cache.push_back((task_deliveries*)actor);
-				}
-				if (class_name.find("Task_Pizzushi_C") != std::string::npos) {
-					temp_task_pizzushi_cache.push_back((task_pizzushis*)actor);
-				}
-				if (class_name.find("Task_Data_C") != std::string::npos) {
-					temp_task_data_cache.push_back((task_data*)actor);
-				}
-				if (class_name.find("Task_Scanner_C") != std::string::npos) {
-					temp_task_scanner_cache.push_back((task_scanner*)actor);
-				}
-				if (class_name.find("AlarmButton_C") != std::string::npos) {
-					temp_alarm_button_cache.push_back((a_alarm_button_c*)actor);
-				}
-				if (class_name.find("RezCharger_C") != std::string::npos) {
-					temp_rez_charger_cache.push_back((a_rez_charger_c*)actor);
-				}
-				if (class_name.find("Mec_C") != std::string::npos) {
-					temp_player_cache.push_back((mec_pawn*)actor);
-				}
-				if (class_name.find("WeaponCaseCode_C") != std::string::npos) {
-					temp_weapon_case_cache.push_back((a_weapon_case_code_c*)actor);
-				}
-			}
+		std::vector<a_actor*> actors_to_classify;
+		for (auto level : ReadRemoteArray(levels)) {
+			if (!level) continue;
+			auto level_actors = ReadRemoteArray(level->get_actors());
+			actors_to_classify.insert(actors_to_classify.end(), level_actors.begin(), level_actors.end());
 		}
 
-		player_cache = temp_player_cache;
-		world_item_cache = temp_world_item_cache;
-		task_vents_cache = temp_task_vents_cache;
-		task_machines_cache = temp_task_machines_cache;
-		task_alims_cache = temp_task_alims_cache;
-		task_delivery_cache = temp_task_delivery_cache;
-		task_pizzushi_cache = temp_task_pizzushi_cache;
-		task_data_cache = temp_task_data_cache;
-		task_scanner_cache = temp_task_scanner_cache;
-		alarm_button_cache = temp_alarm_button_cache;
-		rez_charger_cache = temp_rez_charger_cache;
-		weapon_case_cache = temp_weapon_case_cache;
+		std::vector<classified_actor> classified_actors(actors_to_classify.size());
+		if (actors_to_classify.size() >= 128) {
+			std::transform(std::execution::par, actors_to_classify.begin(), actors_to_classify.end(), classified_actors.begin(), classify_actor);
+		}
+		else {
+			std::transform(actors_to_classify.begin(), actors_to_classify.end(), classified_actors.begin(), classify_actor);
+		}
+
+		for (const auto& entry : classified_actors)
+			append_classified_actor(next_cache, entry);
+
+		const bool has_world_items = !next_cache.world_items.empty();
+		replace_cached_objects(std::move(next_cache));
 
 		// Call PopulateUniqueItems only once after items are populated
-		if (!items_populated && !temp_world_item_cache.empty()) {
+		if (!items_populated && has_world_items) {
 			menu::PopulateUniqueItems(inserted_names);
 			items_populated = true;  // Ensure this only happens once
 		}
@@ -374,13 +424,23 @@ inline void StartRainbowSuitThread() {
 }
 
 static void render_callback() {
-	std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
 	menu::draw();
+	if (!local_camera_manager || !game_state || !local_mec)
+		return;
+
 	radar::draw();
 
+	const auto frame_cache = get_cached_objects();
 	f_camera_cache last_frame_cached = local_camera_manager->get_cached_frame_private();
-	auto players = game_state->player_array();
+	const auto render_time = std::chrono::steady_clock::now();
+	static auto last_memory_update = render_time - std::chrono::milliseconds(50);
+	static auto last_item_data_update = render_time - std::chrono::milliseconds(250);
+	const bool should_update_memory = render_time - last_memory_update >= std::chrono::milliseconds(50);
+	const bool should_update_item_data = render_time - last_item_data_update >= std::chrono::milliseconds(250);
+	if (should_update_memory)
+		last_memory_update = render_time;
+	if (should_update_item_data)
+		last_item_data_update = render_time;
 
 	if (GetAsyncKeyState(esp_hotkey) & 1) {
 		esp_enabled = !esp_enabled;
@@ -419,7 +479,7 @@ static void render_callback() {
 		aimbot = !aimbot;
 	}
 
-	if (fly_mode) {
+	if (fly_mode && should_update_memory) {
 		local_mec->set_fly_stamina(1.0);
 	}
 
@@ -439,7 +499,7 @@ static void render_callback() {
 	auto melee_item_data = (u_data_melee*)hand_item;
 	auto gun_item_data = (u_data_gun*)hand_item;
 
-	if (isDebugging) {
+	if (isDebugging && should_update_item_data) {
 		if (hand_item) {
 			auto mtype = melee_item_data->get_melee_type();
 
@@ -451,7 +511,7 @@ static void render_callback() {
 				int range = static_cast<int>(mtype->get_range()); // 0x0068
 
 				std::cout << std::fixed << std::setprecision(2)
-					<< "itemData[\"" << hand_item->get_name().read_string() << "\"] = "
+					<< "itemData[\"" << GetCachedItemName(hand_item) << "\"] = "
 					<< "ItemProperties(" << castTime << ", "
 					<< recoverTime << ", "
 					<< stun << ", "
@@ -476,7 +536,7 @@ static void render_callback() {
 			double run_prec = gun_data->get_run_precision();
 			double stun = gun_data->get_stun();
 
-			std::cout << "itemData[\"" << hand_item->get_name().read_string() << "\"] = ItemProperties("
+			std::cout << "itemData[\"" << GetCachedItemName(hand_item) << "\"] = ItemProperties("
 				<< (auto_fire ? "true" : "false") << ", "
 				<< fire_rate << ", "
 				<< damage << ", "
@@ -494,7 +554,7 @@ static void render_callback() {
 
 			/*
 			// Format and output the string to the console
-			std::cout << "itemData[\"" << hand_item->get_name().read_string() << "\"] = "
+			std::cout << "itemData[\"" << GetCachedItemName(hand_item) << "\"] = "
 				<< "ItemProperties: DMG:" << gun_item_data->get_damage() << ", "
 				<< "Crit: " << gun_item_data->get_crit() << ", "
 				<< "Stam_DMG: " << gun_item_data->get_stamina_damage() << ", "
@@ -507,7 +567,7 @@ static void render_callback() {
 			*/
 		}
 
-		for (auto mec : player_cache) {
+		for (auto mec : frame_cache.players) {
 			auto state = mec->player_state();
 			if (!state) continue;
 			auto name_str = state->get_player_name_private().read_string();
@@ -548,7 +608,7 @@ static void render_callback() {
 		vector2 screen_center = { screen_width / 2.0f, screen_height / 2.0f };
 
 		// Iterate through all cached players to find the best target
-		for (auto mec : player_cache) {
+		for (auto mec : frame_cache.players) {
 			auto state = mec->player_state();
 			if (!state) continue;
 
@@ -633,13 +693,16 @@ static void render_callback() {
 		}
 	}
 
+	if (should_update_memory) {
 	if (infinite_ammo) {
 		if (hand_item) {
-			auto item_name = hand_item->get_name().read_string();
+			auto item_name = GetCachedItemName(hand_item);
 			if (item_name == "SHORTY" || item_name == "PISTOL" || item_name == "REVOLVER" || item_name == "SHOTGUN" || item_name == "RIFLE" || item_name == "SMG") {
 				auto hand_state = local_mec->get_hand_state();
-				hand_state.Value_8 = ammo_count;
-				local_mec->set_hand_state(hand_state);
+				if (hand_state.Value_8 != ammo_count) {
+					hand_state.Value_8 = ammo_count;
+					local_mec->set_hand_state(hand_state);
+				}
 			}
 			else {
 				infinite_ammo = !infinite_ammo;
@@ -668,12 +731,12 @@ static void render_callback() {
 		if (!local_mec->get_alive()) {
 			local_mec->set_alive(true);
 		}
-		local_mec->set_health(100);
+		if (local_mec->get_health() != 100)
+			local_mec->set_health(100);
 	}
 
 	if (rainbowsuit) {
-		std::thread rainbowsuit_thread(StartRainbowSuitThread);
-		rainbowsuit_thread.detach();
+		StartRainbowSuitThread();
 	}
 
 	if (collisions_toggle) {
@@ -735,15 +798,18 @@ static void render_callback() {
 
 	//static double fric = local_mec->get_friction();
 	//std::cout << *reinterpret_cast<std::uint64_t*>(&fric);
+	static bool speedhack_was_enabled = false;
 	if (speedhack) {
 		local_mec->set_acceleration(vector2(9999.0, 9999.0));
 		local_mec->set_max_speed(max_speed);
 		local_mec->set_friction(friction);
+		speedhack_was_enabled = true;
 	}
-	else {
+	else if (speedhack_was_enabled) {
 		local_mec->set_acceleration(vector2(100.0, 100.0));
 		local_mec->set_max_speed(800.0);
 		local_mec->set_friction(0);
+		speedhack_was_enabled = false;
 	}
 
 	if (lock_hand_item) {
@@ -767,7 +833,9 @@ static void render_callback() {
 			}
 		}
 	}
+	}
 
+	if (should_update_item_data) {
 	if (hand_item) {
 		if (fast_melee || infinite_melee_range || impact_change) {
 			if (util::get_name_from_fname(hand_item->class_private()->fname_index()).find("Data_Melee_C") != std::string::npos) {
@@ -792,7 +860,7 @@ static void render_callback() {
 	if (hand_item) {
 		if (!fast_melee) {
 			auto mtype = melee_item_data->get_melee_type();
-			std::string item_name = hand_item->get_name().read_string();
+			std::string item_name = GetCachedItemName(hand_item);
 			ItemProperties itemprops = GetItemProperties(item_name);
 
 			if (!fast_melee) {
@@ -805,7 +873,7 @@ static void render_callback() {
 
 		if (!infinite_melee_range) {
 			auto mtype = melee_item_data->get_melee_type();
-			std::string item_name = hand_item->get_name().read_string();
+			std::string item_name = GetCachedItemName(hand_item);
 			ItemProperties itemprops = GetItemProperties(item_name);
 
 			if (!infinite_melee_range) {
@@ -853,7 +921,7 @@ static void render_callback() {
 		if (!auto_fire || !rapid_fire || !no_recoil || !max_damage) {
 			if (util::get_name_from_fname(hand_item->class_private()->fname_index()).find("Data_Gun_C") != std::string::npos) {
 				auto gun_data = (u_data_gun*)hand_item;
-				std::string item_name = hand_item->get_name().read_string();
+				std::string item_name = GetCachedItemName(hand_item);
 				ItemProperties itemprops = GetItemProperties(item_name);
 				if (!auto_fire) {
 					gun_data->set_auto_fire(itemprops.auto_fire);
@@ -883,9 +951,10 @@ static void render_callback() {
 			}
 		}
 	}
+	}
 
 	if (player_esp) {
-		for (auto mec : player_cache) {
+		for (auto mec : frame_cache.players) {
 			auto state = mec->player_state();
 			if (!state) continue;
 
@@ -1061,8 +1130,8 @@ static void render_callback() {
 								auto mec_bag_item_data = mec->get_net_bag_item_new().Data_18;
 								auto mec_bag_item_state = mec->get_net_bag_item_new().State_19;
 
-								std::string mec_hand_item_name = mec_hand_item_data ? mec_hand_item_data->get_name().read_string() : "";
-								std::string mec_bag_item_name = mec_bag_item_data ? mec_bag_item_data->get_name().read_string() : "";
+								std::string mec_hand_item_name = GetCachedItemName(mec_hand_item_data);
+								std::string mec_bag_item_name = GetCachedItemName(mec_bag_item_data);
 
 								struct ItemStateInfo {
 									std::string text;
@@ -1271,28 +1340,31 @@ static void render_callback() {
 		}
 	}
 
-	for (auto item : world_item_cache) {
+	if (weapon_esp || primary_object_esp || secondary_object_esp) {
+	const ImU32 weapon_esp_color = ImGui::ColorConvertFloat4ToU32(weapon_color);
+	const ImU32 gaz_bottle_esp_color = ImGui::ColorConvertFloat4ToU32(gaz_bottle_color);
+	const ImU32 vent_filter_esp_color = ImGui::ColorConvertFloat4ToU32(vent_filter_color);
+	const ImU32 package_esp_color = ImGui::ColorConvertFloat4ToU32(package_color);
+	const ImU32 rice_esp_color = ImGui::ColorConvertFloat4ToU32(rice_color);
+	const ImU32 sample_esp_color = ImGui::ColorConvertFloat4ToU32(sample_color);
+	const ImU32 fuse_esp_color = ImGui::ColorConvertFloat4ToU32(fuse_color);
+	const ImU32 battery_esp_color = ImGui::ColorConvertFloat4ToU32(battery_color);
+	const ImU32 screw_driver_esp_color = ImGui::ColorConvertFloat4ToU32(screw_driver_color);
+	const ImU32 egg_esp_color = ImGui::ColorConvertFloat4ToU32(egg_color);
+	const ImU32 defib_esp_color = ImGui::ColorConvertFloat4ToU32(defib_color);
+	const ImU32 container_esp_color = ImGui::ColorConvertFloat4ToU32(container_color);
+	const ImU32 machine_part_esp_color = ImGui::ColorConvertFloat4ToU32(machine_part_color);
+	const ImU32 access_card_esp_color = ImGui::ColorConvertFloat4ToU32(access_card_color);
+
+	for (auto item : frame_cache.world_items) {
 		if (!item) continue;
 
 		auto data = item->get_data();
-		auto item_name = data->get_name().read_string();
+		if (!data) continue;
+		auto item_name = GetCachedItemName(data);
 		auto item_state = item->get_item_state();
 		int item_value = item_state.Value_8;
 		int item_time = item_state.Time_15;
-		ImU32 weapon_esp_color = ImGui::ColorConvertFloat4ToU32(weapon_color);
-		ImU32 gaz_bottle_esp_color = ImGui::ColorConvertFloat4ToU32(gaz_bottle_color);
-		ImU32 vent_filter_esp_color = ImGui::ColorConvertFloat4ToU32(vent_filter_color);
-		ImU32 package_esp_color = ImGui::ColorConvertFloat4ToU32(package_color);
-		ImU32 rice_esp_color = ImGui::ColorConvertFloat4ToU32(rice_color);
-		ImU32 sample_esp_color = ImGui::ColorConvertFloat4ToU32(sample_color);
-		ImU32 fuse_esp_color = ImGui::ColorConvertFloat4ToU32(fuse_color);
-		ImU32 battery_esp_color = ImGui::ColorConvertFloat4ToU32(battery_color);
-		ImU32 screw_driver_esp_color = ImGui::ColorConvertFloat4ToU32(screw_driver_color);
-		ImU32 egg_esp_color = ImGui::ColorConvertFloat4ToU32(egg_color);
-		ImU32 defib_esp_color = ImGui::ColorConvertFloat4ToU32(defib_color);
-		ImU32 container_esp_color = ImGui::ColorConvertFloat4ToU32(container_color);
-		ImU32 machine_part_esp_color = ImGui::ColorConvertFloat4ToU32(machine_part_color);
-		ImU32 access_card_esp_color = ImGui::ColorConvertFloat4ToU32(access_card_color);
 
 		if (item_name == "PISTOL" || item_name == "REVOLVER" || item_name == "SHORTY" || item_name == "SMG" || item_name == "RIFLE" || item_name == "SHOTGUN") {
 			auto gun_data = (u_data_gun*)data;
@@ -1665,14 +1737,15 @@ static void render_callback() {
 			}
 		}
 	}
+	}
 
-	for (auto vent : task_vents_cache) {
+	for (auto vent : frame_cache.task_vents) {
 		if (!vent) continue;
 		auto role = local_mec->get_player_role();
 		if (role == 3 || role == 4) {
 			if (task_object_esp) {
 				auto task_vents_array = vent->get_task_vents();
-				auto task_vents = task_vents_array.list();
+				auto task_vents = ReadRemoteArray(task_vents_array);
 
 				if (task_vent) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_vent_color);
@@ -1719,14 +1792,14 @@ static void render_callback() {
 		}
 	}
 
-	for (auto machines : task_machines_cache) {
+	for (auto machines : frame_cache.task_machines) {
 		if (!machines) continue;
 		auto role = local_mec->get_player_role();
 
 		if (role == 3 || role == 4) {
 			if (task_object_esp) {
 				auto task_machines_array = machines->get_machines();
-				auto task_machines = task_machines_array.list();
+				auto task_machines = ReadRemoteArray(task_machines_array);
 
 				if (task_machine) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_machine_color);
@@ -1735,7 +1808,7 @@ static void render_callback() {
 						if (!taskMachine) continue;
 
 						auto machine_bottles_array = taskMachine->get_bottles();
-						auto task_bottles = machine_bottles_array.list();
+						auto task_bottles = ReadRemoteArray(machine_bottles_array);
 
 						for (auto machineBottle : task_bottles) {
 							if (!machineBottle) continue;
@@ -1783,14 +1856,14 @@ static void render_callback() {
 		}
 	}
 
-	for (auto alim : task_alims_cache) {
+	for (auto alim : frame_cache.task_alimentations) {
 		if (!alim) continue;
 		auto role = local_mec->get_player_role();
 
 		if (role == 3 || role == 4) {
 			if (task_object_esp) {
 				auto task_alim_array = alim->get_task_alims();
-				auto task_alims = task_alim_array.list();
+				auto task_alims = ReadRemoteArray(task_alim_array);
 
 				if (task_alim) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_alim_color);
@@ -1846,14 +1919,14 @@ static void render_callback() {
 		}
 	}
 
-	for (auto delivery : task_delivery_cache) {
+	for (auto delivery : frame_cache.task_deliveries) {
 		if (!delivery) continue;
 		auto role = local_mec->get_player_role();
 
 		if (role == 3 || role == 4) {
 			if (task_object_esp) {
 				auto task_delivery_array = delivery->get_task_cases();
-				auto task_cases = task_delivery_array.list();
+				auto task_cases = ReadRemoteArray(task_delivery_array);
 
 				if (task_delivery) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_delivery_color);
@@ -1889,14 +1962,14 @@ static void render_callback() {
 		}
 	}
 
-	for (auto pizzushi : task_pizzushi_cache) {
+	for (auto pizzushi : frame_cache.task_pizzushis) {
 		if (!pizzushi) continue;
 		auto role = local_mec->get_player_role();
 
 		if (role == 3 || role == 4) {
 			if (task_object_esp) {
 				auto pizzushi_tables_array = pizzushi->get_task_tables();
-				auto pizzushi_tables = pizzushi_tables_array.list();
+				auto pizzushi_tables = ReadRemoteArray(pizzushi_tables_array);
 
 				if (task_pizzushi) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_pizzushi_color);
@@ -1952,7 +2025,7 @@ static void render_callback() {
 		}
 	}
 
-	for (auto computers : task_data_cache) {
+	for (auto computers : frame_cache.task_data) {
 		if (!computers) continue;
 		auto role = local_mec->get_player_role();
 
@@ -1960,8 +2033,8 @@ static void render_callback() {
 			if (task_object_esp) {
 				auto task_source_pcs = computers->get_task_source_pc();
 				auto task_target_pcs = computers->get_task_target_pc();
-				auto source_pcs = task_source_pcs.list();
-				auto target_pcs = task_target_pcs.list();
+				auto source_pcs = ReadRemoteArray(task_source_pcs);
+				auto target_pcs = ReadRemoteArray(task_target_pcs);
 
 				if (task_computers) {
 					ImU32 task_color = ImGui::ColorConvertFloat4ToU32(task_computer_color);
@@ -2044,7 +2117,7 @@ static void render_callback() {
 		}
 	}
 
-	for (auto scanner : task_scanner_cache) {
+	for (auto scanner : frame_cache.task_scanners) {
 		if (!scanner) continue;
 		auto role = local_mec->get_player_role();
 
@@ -2063,7 +2136,7 @@ static void render_callback() {
 					if (mec2machine_distance < 0.5) {
 						auto scanner_screen = scanner->get_screen_ref();
 						auto scanner_targets_array = scanner_screen->get_targets();
-						auto scanner_targets = scanner_targets_array.list();
+						auto scanner_targets = ReadRemoteArray(scanner_targets_array);
 
 						f_camera_cache last_frame_cached = local_camera_manager->get_cached_frame_private();
 						vector3 camera_rotation = last_frame_cached.pov.rotation;
@@ -2104,7 +2177,7 @@ static void render_callback() {
 		}
 	}
 
-	for (auto weapon_case : weapon_case_cache) {
+	for (auto weapon_case : frame_cache.weapon_cases) {
 		if (!weapon_case) continue;
 
 		auto role = local_mec->get_player_role();
@@ -2114,7 +2187,7 @@ static void render_callback() {
 				ImU32 case_color = ImGui::ColorConvertFloat4ToU32(weapon_case_color);
 
 				auto weapon_case_code = weapon_case->get_target_values();
-				auto case_code = weapon_case_code.list();
+				auto case_code = ReadRemoteArray(weapon_case_code);
 				auto case_timer = weapon_case->get_opening_timer().Handle;
 				auto open_delay = weapon_case->get_open_delay();
 
@@ -2183,7 +2256,7 @@ static void render_callback() {
 		}
 	}
 
-	for (auto rez : rez_charger_cache) {
+	for (auto rez : frame_cache.rez_chargers) {
 		if (!rez) continue;
 
 		auto role = local_mec->get_player_role();
@@ -2229,7 +2302,7 @@ static void render_callback() {
 		}
 	}
 
-	for (auto alarm : alarm_button_cache) {
+	for (auto alarm : frame_cache.alarm_buttons) {
 		if (!alarm) continue;
 
 		auto role = local_mec->get_player_role();
@@ -2304,7 +2377,7 @@ int main() {
 
 	std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-	std::cout << "HawkTuahOverlay initialized." << std::endl;
+	std::cout << "Sexy Menu by dbones initialized." << std::endl;
 
 	overlay->load_font();
 

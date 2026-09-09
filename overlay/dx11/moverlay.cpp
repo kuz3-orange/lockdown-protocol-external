@@ -20,7 +20,7 @@ BOOL c_overlay::init_device() {
     vSwapChainDesc.BufferDesc.Width = 0;
     vSwapChainDesc.BufferDesc.Height = 0;
     vSwapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    vSwapChainDesc.BufferDesc.RefreshRate.Numerator = 60;
+    vSwapChainDesc.BufferDesc.RefreshRate.Numerator = 0;
     vSwapChainDesc.BufferDesc.RefreshRate.Denominator = 1;
     vSwapChainDesc.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
     vSwapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
@@ -249,7 +249,7 @@ c_overlay::c_overlay() :
     //window_handle = FindWindowW(L"MedalOverlayClass", L"MedalOverlay");
     //window_handle = FindWindowW(L"Chrome_WidgetWin_1", L"Medal Overlay");
     //window_handle = FindMedalOverlayWindow();
-    window_handle = create_overlay_window(L"HawkTuahOverlay");
+    window_handle = create_overlay_window(L"SEXO menu");
 
     if (window_handle) {
 
@@ -286,7 +286,6 @@ c_overlay::c_overlay() :
 
     init_imgui();
 
-    std::thread(&c_overlay::input_handler, this).detach();
 }
 
 c_overlay::~c_overlay() {
@@ -302,8 +301,6 @@ void c_overlay::bind_render_callback(std::function<void()> callback) {
 
 
 const void c_overlay::render(FLOAT width, FLOAT height) {
-    SetWindowPos(window_handle, 0, 0, 0, static_cast<int>(window_width), static_cast<int>(window_height), 0);
-
     ImGuiStyle& style = ImGui::GetStyle();
 
     init_draw_list();
@@ -319,7 +316,7 @@ void c_overlay::end_frame() {
     device_context->OMSetRenderTargets(1, &render_target_view, NULL);
     device_context->ClearRenderTargetView(render_target_view, (float*)&clear_clr);
     ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-    swap_chain->Present(1, 0);
+    swap_chain->Present(0, 0);
 }
 
 MSG c_overlay::begin_frame() {
@@ -332,12 +329,15 @@ MSG c_overlay::begin_frame() {
 
     ImGui_ImplDX11_NewFrame();
     ImGui_ImplWin32_NewFrame();
+    input_handler();
     ImGui::NewFrame();
 
     return msg;
 }
 
 BOOL c_overlay::msg_loop() {
+    const auto frame_started = std::chrono::steady_clock::now();
+
     if (exit_ready)
         return false;
 
@@ -347,6 +347,11 @@ BOOL c_overlay::msg_loop() {
         render(window_width, window_height);
 
         end_frame();
+
+        constexpr auto minimum_frame_time = std::chrono::microseconds(6944);
+        const auto frame_time = std::chrono::steady_clock::now() - frame_started;
+        if (frame_time < minimum_frame_time)
+            std::this_thread::sleep_for(minimum_frame_time - frame_time);
 
         return msg.message != WM_QUIT;
     }
@@ -364,21 +369,19 @@ BOOL c_overlay::msg_loop() {
 }
 
 void c_overlay::input_handler() {
-    for (; !exit_ready; Sleep(1)) {
-        ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO& io = ImGui::GetIO();
 
-        POINT p{};
-        GetCursorPos(&p);
-        io.MousePos = ImVec2((float)p.x, (float)p.y);
+    POINT p{};
+    GetCursorPos(&p);
+    io.MousePos = ImVec2((float)p.x, (float)p.y);
 
-        io.MouseDown[0] = GetAsyncKeyState(VK_LBUTTON) & 0x8000;
-        io.MouseDown[1] = GetAsyncKeyState(VK_RBUTTON) & 0x8000;
+    io.MouseDown[0] = GetAsyncKeyState(VK_LBUTTON) & 0x8000;
+    io.MouseDown[1] = GetAsyncKeyState(VK_RBUTTON) & 0x8000;
 
-        bool is_arrow_key_up_down = GetAsyncKeyState(VK_UP) != 0;
-        bool is_arrow_key_down_down = GetAsyncKeyState(VK_DOWN) != 0;
+    bool is_arrow_key_up_down = GetAsyncKeyState(VK_UP) != 0;
+    bool is_arrow_key_down_down = GetAsyncKeyState(VK_DOWN) != 0;
 
-        io.MouseWheel = is_arrow_key_up_down ? .5f : is_arrow_key_down_down ? -.5f : 0.0f;
-    }
+    io.MouseWheel = is_arrow_key_up_down ? .5f : is_arrow_key_down_down ? -.5f : 0.0f;
 }
 
 VOID c_overlay::init_draw_list() {

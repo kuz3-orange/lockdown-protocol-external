@@ -1,6 +1,7 @@
 #include "radar.h"
 #include "globals.h"
 #include "config.h"
+#include "data_cache.h"
 #include "game_math.hpp"
 #include "overlay/imgui/imgui.h"
 #include <vector>
@@ -41,7 +42,8 @@ double CalculateDistanceMetersRadar(const vector3& location1, const vector3& loc
 }
 
 void radar::draw() {
-	if (esp_radar) {
+	if (esp_radar && local_camera_manager && local_mec) {
+		const auto current_cache = get_cached_objects();
 		// Define scale
 		const double scaleFactor = 0.05; // Scale to convert world units to radar units
 
@@ -169,7 +171,7 @@ void radar::draw() {
 
 		// Plot players
 		if (player_radar) {
-			for (auto mec : player_cache) {
+			for (auto mec : current_cache.players) {
 
 				if (mec != local_mec) {
 					auto role = mec->get_player_role(); // Get player role
@@ -198,7 +200,7 @@ void radar::draw() {
 
 		// Plot ghosts
 		if (ghost_radar) {
-			for (auto mec : player_cache) {
+			for (auto mec : current_cache.players) {
 				if (mec != local_mec) {
 					auto role = mec->get_player_role(); // Get player role
 					ImU32 ghostcolor = (role == 4) ? ghostDissidentColor : ghostEmployeeColor; // Use config colors
@@ -237,11 +239,12 @@ void radar::draw() {
 
 		// Plot weapons
 		if (weapon_radar) {
-			for (auto item : world_item_cache) {
+			for (auto item : current_cache.world_items) {
 				if (!item) continue;
 
 				auto data = item->get_data();
-				auto item_name = data->get_name().read_string();
+				if (!data) continue;
+				auto item_name = GetCachedItemName(data);
 
 				// Check if the item is a weapon
 				if (item_name == "SHORTY" || item_name == "PISTOL" || item_name == "REVOLVER" ||
@@ -269,11 +272,12 @@ void radar::draw() {
 
 		// Plot Primary Objects
 		if (primary_radar) {
-			for (auto item : world_item_cache) {
+			for (auto item : current_cache.world_items) {
 				if (!item) continue;
 
 				auto data = item->get_data();
-				auto item_name = data->get_name().read_string();
+				if (!data) continue;
+				auto item_name = GetCachedItemName(data);
 
 				// Check if the item is a weapon
 				if (item_name == "GAZ BOTTLE" || item_name == "VENT FILTER" || item_name == "RICE" ||
@@ -321,11 +325,12 @@ void radar::draw() {
 
 		// Plot Secondary Objects
 		if (secondary_radar) {
-			for (auto item : world_item_cache) {
+			for (auto item : current_cache.world_items) {
 				if (!item) continue;
 
 				auto data = item->get_data();
-				auto item_name = data->get_name().read_string();
+				if (!data) continue;
+				auto item_name = GetCachedItemName(data);
 
 				// Check if the item is a weapon
 				if (item_name == "BATTERY" || item_name == "FUSE" || item_name == "CONTAINER" ||

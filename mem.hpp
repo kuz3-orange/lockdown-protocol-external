@@ -67,8 +67,11 @@ namespace mem {
         WriteProcessMemory(process, (LPVOID)address, &buffer, sizeof(buffer), NULL);
     }
 
-    inline void read_raw(uintptr_t address, void* buffer, size_t size) {
-        ReadProcessMemory(process, (LPCVOID)address, buffer, size, NULL);
+    inline bool read_raw(uintptr_t address, void* buffer, size_t size) {
+        if (address < 0x10000 || buffer == nullptr || size == 0) return false;
+
+        SIZE_T bytes_read = 0;
+        return ReadProcessMemory(process, reinterpret_cast<LPCVOID>(address), buffer, size, &bytes_read) && bytes_read == size;
     }
 
     inline void* virtallocex(LPVOID address, SIZE_T dwSize, DWORD allocation_type, DWORD protection)

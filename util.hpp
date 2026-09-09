@@ -5,6 +5,9 @@
 #include <Windows.h>
 #include "mem.hpp"
 #include "game_structures.hpp"
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
 
 namespace util {
 	using namespace protocol::engine::sdk;
@@ -96,11 +99,15 @@ namespace util {
 
 	static std::string get_name_from_fname(int key)
 	{
-		static std::map<int, std::string> cached_fnames{};
+		static std::unordered_map<int, std::string> cached_fnames{};
+		static std::shared_mutex cached_fnames_mutex;
 
-		auto cached_name = cached_fnames.find(key);
-		if (cached_name != cached_fnames.end())
-			return cached_name->second;
+		{
+			std::shared_lock lock(cached_fnames_mutex);
+			auto cached_name = cached_fnames.find(key);
+			if (cached_name != cached_fnames.end())
+				return cached_name->second;
+		}
 
 		auto chunkOffset = (UINT)((int)(key) >> 16);
 		auto name_offset = (USHORT)key;
@@ -110,15 +117,17 @@ namespace util {
 		auto name_entry = mem::rpm<INT16>(entry_offset);
 
 		auto len = name_entry >> 6;
-		char buff[1028];
-		if ((DWORD)len && len > 0)
+		char buff[1028]{};
+		if (len > 0 && len < static_cast<int>(sizeof(buff)))
 		{
-			memset(buff, 0, 1028);
-			mem::read_raw(entry_offset + 2, buff, len);
+			if (!mem::read_raw(entry_offset + 2, buff, len))
+				return {};
+
 			buff[len] = '\0';
 			std::string ret(buff);
-			cached_fnames.emplace(key, ret);
-			return std::string(ret);
+
+			std::unique_lock lock(cached_fnames_mutex);
+			return cached_fnames.emplace(key, std::move(ret)).first->second;
 		}
 		else return "";
 	}

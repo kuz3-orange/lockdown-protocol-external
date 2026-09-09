@@ -3,7 +3,10 @@
 #include <unordered_map>
 #include "game_structures.hpp"
 #include <d3d11.h>
+#include <mutex>
+#include <shared_mutex>
 #include <unordered_set>
+#include <utility>
 
 namespace globals {
 	using namespace protocol::engine::sdk;
@@ -21,18 +24,33 @@ namespace globals {
 	inline mec_pawn* local_mec = 0;
 	inline a_gm_c* gm_ref = nullptr;
 
-	inline std::vector < mec_pawn* > player_cache{};
-	inline std::vector < world_item* > world_item_cache{};
-	inline std::vector < task_vents* > task_vents_cache{};
-	inline std::vector < task_machines* > task_machines_cache{};
-	inline std::vector < task_alimentations* > task_alims_cache{};
-	inline std::vector < task_deliveries* > task_delivery_cache{};
-	inline std::vector < task_pizzushis* > task_pizzushi_cache{};
-	inline std::vector < task_data* > task_data_cache{};
-	inline std::vector < task_scanner* > task_scanner_cache{};
-	inline std::vector < a_alarm_button_c* > alarm_button_cache{};
-	inline std::vector < a_rez_charger_c* > rez_charger_cache{};
-	inline std::vector < a_weapon_case_code_c* > weapon_case_cache{};
+	struct object_cache {
+		std::vector<mec_pawn*> players;
+		std::vector<world_item*> world_items;
+		std::vector<task_vents*> task_vents;
+		std::vector<task_machines*> task_machines;
+		std::vector<task_alimentations*> task_alimentations;
+		std::vector<task_deliveries*> task_deliveries;
+		std::vector<task_pizzushis*> task_pizzushis;
+		std::vector<task_data*> task_data;
+		std::vector<task_scanner*> task_scanners;
+		std::vector<a_alarm_button_c*> alarm_buttons;
+		std::vector<a_rez_charger_c*> rez_chargers;
+		std::vector<a_weapon_case_code_c*> weapon_cases;
+	};
+
+	inline object_cache cached_objects{};
+	inline std::shared_mutex cached_objects_mutex;
+
+	inline object_cache get_cached_objects() {
+		std::shared_lock lock(cached_objects_mutex);
+		return cached_objects;
+	}
+
+	inline void replace_cached_objects(object_cache next_cache) {
+		std::unique_lock lock(cached_objects_mutex);
+		cached_objects = std::move(next_cache);
+	}
 
 	struct s_font {
 		ImFont* im_font = nullptr;

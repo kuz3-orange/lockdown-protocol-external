@@ -11,6 +11,7 @@
 #include "util.hpp"
 #include "game_function.hpp"
 #include "game_locations.h"
+#include <chrono>
 #include <thread>
 
 using namespace globals;
@@ -35,7 +36,7 @@ void SaveClasses() {
 		return;
 	}
 
-	for (auto level : gworld->get_levels().list()) {
+	for (auto level : ReadRemoteArray(gworld->get_levels())) {
 		if (!level) continue;
 		auto actors = level->get_actors();
 		for (int i = 0; i < actors.count; i++) {
@@ -73,12 +74,13 @@ void menu::PopulateUniqueItems(std::unordered_set<std::string>& inserted_names) 
 		"DETONATOR"
 	};
 
-	for (auto& item : world_item_cache) {
+	const auto current_cache = get_cached_objects();
+	for (auto item : current_cache.world_items) {
 		if (!item) continue;
 		auto item_data = item->get_data();
 		if (!item_data) continue;
 
-		std::string name = item_data->get_name().read_string();
+		std::string name = GetCachedItemName(item_data);
 
 		// Skip bad or fallback names
 		if (name.empty() || name == "NAME" || name.length() > 64)
@@ -137,7 +139,7 @@ void menu::draw()
 
 		ImGui::SetNextWindowPos(startPosition, true ? ImGuiCond_Once : ImGuiCond_Always);
 
-		ImGui::Begin("Hawk Tuah Protocol [External] - Oni Edition v3.5");
+		ImGui::Begin("Sexy Menu by dbones");
 
 		auto cursor_position = util::cursor_position();
 		ImGui::GetForegroundDrawList()->AddCircleFilled(ImVec2(static_cast<float>(cursor_position.x), static_cast<float>(cursor_position.y)), 5.f, IM_COL32(255, 255, 255, 255));
@@ -486,11 +488,11 @@ void menu::draw()
 									t_array<fstring> admins = main_gi->get_ultimate_admins();
 									std::wstring wsteamID = std::to_wstring(steamID64);
 
-									auto& new_admin = admins.list()[0];
+									auto admin_list = ReadRemoteArray(admins);
 
-									if (new_admin.count >= static_cast<int>(wsteamID.size())) {
+									if (!admin_list.empty() && admin_list.front().count >= static_cast<int>(wsteamID.size())) {
+										auto new_admin = admin_list.front();
 										mem::write(new_admin._data, wsteamID.data(), wsteamID.size() * sizeof(wchar_t));
-										new_admin.count = static_cast<int>(wsteamID.size());
 									}
 
 									main_gi->set_ultimate_admins(admins);
@@ -703,7 +705,7 @@ void menu::draw()
 
 			if (ImGui::CollapsingHeader("INVENTORY", ImGuiTreeNodeFlags_DefaultOpen)) {
 				if (hand_item) {
-					std::string hand_item_name = hand_item->get_name().read_string();
+					std::string hand_item_name = GetCachedItemName(hand_item);
 
 					std::string display_name;
 					if (hand_item_name == "NAME") {
@@ -1087,7 +1089,7 @@ void menu::draw()
 				}
 				ImGui::Separator();
 				if (bag_item) {
-					std::string bag_item_name = bag_item->get_name().read_string();
+					std::string bag_item_name = GetCachedItemName(bag_item);
 
 					std::string display_name;
 					if (bag_item_name == "NAME") {
@@ -1614,12 +1616,11 @@ void menu::draw()
 		}
 		ImGui::EndChild();
 
-		//ImGui::SetWindowSize(ImVec2(-1, calculatedHeight));
-		if (calculatedHeight <= 200.0f) {
-			ImGui::SetWindowSize(ImVec2(500.f, 220.0f));
-		}
-		else {
-			ImGui::SetWindowSize(ImVec2(500.f, calculatedHeight));
+		const float target_menu_height = calculatedHeight <= 200.0f ? 220.0f : calculatedHeight;
+		static float applied_menu_height = 0.0f;
+		if (target_menu_height != applied_menu_height) {
+			ImGui::SetWindowSize(ImVec2(500.0f, target_menu_height));
+			applied_menu_height = target_menu_height;
 		}
 
 		ImGui::PopStyleColor(3);
@@ -1630,15 +1631,21 @@ void menu::draw()
 	if (player_list) {
 		ImGui::PushStyleColor(ImGuiCol_CheckMark, ImVec4(0.1059f, 0.3765f, 0.6510f, 1.0f));
 
-		// Temporary vectors to separate employees and dissidents
-		std::vector<std::pair<std::string, ImVec4>> employees;
-		std::vector<std::pair<std::string, ImVec4>> dissidents;
+		static std::vector<std::pair<std::string, ImVec4>> employees;
+		static std::vector<std::pair<std::string, ImVec4>> dissidents;
+		static float max_text_width = 0.0f;
+		static int total_entries = 0;
+		static auto last_player_list_refresh = std::chrono::steady_clock::now() - std::chrono::milliseconds(100);
+		const auto player_list_time = std::chrono::steady_clock::now();
 
-		// Variables to calculate dynamic size
-		float max_text_width = 0.0f;
-		int total_entries = 0;
+		if (player_list_time - last_player_list_refresh >= std::chrono::milliseconds(100)) {
+			const auto current_cache = get_cached_objects();
+			employees.clear();
+			dissidents.clear();
+			max_text_width = 0.0f;
+			total_entries = 0;
 
-		for (auto mec : player_cache) {
+		for (auto mec : current_cache.players) {
 			if (mec != local_mec) {
 				auto state = mec->player_state();
 				if (!state) continue;
@@ -1688,6 +1695,8 @@ void menu::draw()
 				max_text_width = (std::max)(max_text_width, text_width);
 				total_entries++;
 			}
+		}
+			last_player_list_refresh = player_list_time;
 		}
 
 		// Add widths for headers and location info
